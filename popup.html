@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>App Barber Sync</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>App Barber Connector</h1>
+            <div class="status-indicator">
+                <span class="dot active"></span>
+                <span class="status-text">Integração Ativa</span>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Código de Conexão</h2>
+            <div class="token-display" title="Chave de sincronização atual.">
+                <code id="tokenValue">Aguardando dados...</code>
+            </div>
+             <div class="last-sync">
+                Última sincronização: <span id="lastSyncTime">--:--</span>
+            </div>
+             <div class="last-sync status-envio">
+                Status: <span id="syncStatus">Não verificado</span>
+            </div>
+        </div>
+
+        <button id="forceSendBtn" class="primary-btn">
+            Sincronizar Conexão
+        </button>
+        <p id="feedbackMessage" class="feedback"></p>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>

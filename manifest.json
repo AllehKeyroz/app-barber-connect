@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "AppBarber Cookie Sync",
+  "version": "1.1",
+  "permissions": [
+    "cookies",
+    "alarms",
+    "storage",
+    "webNavigation",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "https://sistema.appbarber.com.br/*",
+    "https://n8n-kds-brasil-n8n.znjbnt.easypanel.host/webhook/bffdad22-7ac8-4993-8aee-fa2aa066c516/*",
+    "https://n8n.kdsbrasil.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://sistema.appbarber.com.br/*"],
+      "js": ["inject.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://sistema.appbarber.com.br/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Monitor App Barber",
+    "default_icon": "icon.png"
+  }
+}
