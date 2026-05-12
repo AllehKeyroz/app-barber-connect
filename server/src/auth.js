@@ -1,5 +1,6 @@
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const logger = require('./logger');
 
 puppeteer.use(StealthPlugin());
 
@@ -14,11 +15,63 @@ let browser = null;
 let page = null;
 let currentCookies = {};
 
-async function login() {
-    console.log('[Auth] Iniciando login...');
+function cookiesToString(cookies) {
+    const parts = [];
+    for (const [name, value] of Object.entries(cookies)) {
+        parts.push(`${name}=${value}`);
+    }
+    return parts.join('; ');
+}
+
+async function extractCookies() {
+    if (!page) return null;
+    
+    const allCookies = await page.cookies('https://sistema.appbarber.com.br');
+    const extracted = {};
+    
+    for (const cookie of allCookies) {
+        if (TARGET_COOKIES.includes(cookie.name)) {
+            extracted[cookie.name] = cookie.value;
+            if (cookie.expires) {
+                const expDate = new Date(cookie.expires * 1000);
+                logger.info(`Cookie ${cookie.name}: expira em ${expDate.toLocaleString('pt-BR')} (${Math.round((cookie.expires * 1000 - Date.now()) / 60000)} min)`);
+            } else {
+                logger.info(`Cookie ${cookie.name}: sessao (sem expiracao explicita)`);
+            }
+        }
+    }
+    
+    return extracted;
+}
+
+async function verifySession() {
+    if (!browser || !page) {
+        logger.warn('[Verify] Browser nao inicializado');
+        return { alive: false };
+    }
     
     try {
-        // Fecha browser anterior se existir
+        const cookies = await extractCookies();
+        const hasEssential = cookies && cookies.PHPSESSID && cookies.APPBLZ_ID;
+        
+        if (!hasEssential || Object.keys(cookies).length < 2) {
+            logger.warn('[Verify] Cookies essenciais ausentes');
+            return { alive: false, reason: 'cookies_ausentes' };
+        }
+        
+        logger.success('[Verify] Sessao ativa');
+        return { alive: true, cookies };
+        
+    } catch (error) {
+        logger.error(`[Verify] Erro: ${error.message}`);
+        return { alive: false, reason: error.message };
+    }
+}
+
+async function login() {
+    logger.info('[Login] Iniciando login...');
+    
+    try {
         if (browser) {
             try { await browser.close(); } catch(e) {}
         }
@@ -38,45 +91,37 @@ async function login() {
         
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36');
 
-        // Navegar para a pagina de login
-        console.log('[Auth] Navegando para pagina de login...');
+        logger.info('[Login] Navegando para pagina de login...');
         await page.goto('https://sistema.appbarber.com.br/index.php', {
             waitUntil: 'networkidle2',
-            timeout: 30000
+            timeout: 60000
         });
 
-        // Aguardar o formulario carregar
         await page.waitForSelector('#login-name', { timeout: 15000 });
         
-        // Preencher credenciais
-        console.log('[Auth] Preenchendo credenciais...');
+        logger.info('[Login] Preenchendo credenciais...');
         await page.type('#login-name', process.env.APPBARBER_EMAIL, { delay: 50 });
         await page.type('#login-pass', process.env.APPBARBER_PASSWORD, { delay: 50 });
 
-        // Aguardar reCAPTCHA carregar
-        console.log('[Auth] Aguardando reCAPTCHA...');
+        logger.info('[Login] Aguardando reCAPTCHA...');
         await page.waitForFunction(() => {
             return typeof grecaptcha !== 'undefined' && grecaptcha.ready;
         }, { timeout: 15000 });
         
-        // Pequeno delay para garantir que reCAPTCHA esteja pronto
         await new Promise(resolve => setTimeout(resolve, 2000));
 
-        // Submeter formulario
-        console.log('[Auth] Submetendo formulario...');
+        logger.info('[Login] Submetendo formulario...');
         await Promise.all([
-            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {}),
+            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }).catch(() => {}),
             page.click('.btnLogin')
         ]);
 
-        // Aguardar redirecionamento ou modal
         await new Promise(resolve => setTimeout(resolve, 3000));
 
-        // Verificar se login foi bem-sucedido (URL muda ou aparece modal de selecao)
         const currentUrl = page.url();
-        console.log('[Auth] URL apos login:', currentUrl);
+        logger.info(`[Login] URL apos login: ${currentUrl}`);
 
-        // Verificar se apareceu modal de selecao de empresa
+        // Modal de selecao de empresa
         const empresaModal = await page.$('#login-usuarios');
         if (empresaModal) {
             const isVisible = await page.evaluate(() => {
@@ -85,108 +130,72 @@ async function login() {
             });
             
             if (isVisible) {
-                console.log('[Auth] Modal de selecao de empresa detectado, selecionando primeira...');
+                logger.info('[Login] Selecionando empresa...');
                 await page.click('#divUsuariosLogin button');
                 await new Promise(resolve => setTimeout(resolve, 3000));
             }
         }
 
-        // Capturar cookies
         const cookies = await extractCookies();
         
         if (cookies && Object.keys(cookies).length > 0) {
-            console.log('[Auth] Login bem-sucedido! Cookies capturados:', Object.keys(cookies));
+            logger.success(`[Login] Login bem-sucedido! Cookies: ${Object.keys(cookies).join(', ')}`);
             currentCookies = cookies;
             return { success: true, cookies };
         } else {
-            console.error('[Auth] Login falhou - nenhum cookie relevante encontrado');
-            return { success: false, error: 'Nenhum cookie relevante encontrado' };
+            logger.error('[Login] Login falhou - nenhum cookie encontrado');
+            return { success: false, error: 'Nenhum cookie encontrado' };
         }
 
     } catch (error) {
-        console.error('[Auth] Erro no login:', error.message);
+        logger.error(`[Login] Erro: ${error.message}`);
         return { success: false, error: error.message };
     }
 }
 
-async function extractCookies() {
-    if (!page) return null;
-    
-    const allCookies = await page.cookies('https://sistema.appbarber.com.br');
-    const extracted = {};
-    
-    for (const cookie of allCookies) {
-        if (TARGET_COOKIES.includes(cookie.name)) {
-            extracted[cookie.name] = cookie.value;
-            
-            // Log expiracao para debug
-            if (cookie.expires) {
-                const expDate = new Date(cookie.expires * 1000);
-                console.log(`[Auth] Cookie ${cookie.name}: expira em ${expDate.toLocaleString('pt-BR')} (${Math.round((cookie.expires * 1000 - Date.now()) / 60000)} min)`);
-            } else {
-                console.log(`[Auth] Cookie ${cookie.name}: sessao (sem data de expiracao explicita)`);
-            }
-        }
-    }
-    
-    return extracted;
-}
-
 async function refreshSession() {
-    console.log('[Auth] Refresh de sessao...');
+    logger.info('[Refresh] Iniciando renovacao de sessao...');
     
     if (!page || !browser) {
-        console.log('[Auth] Browser nao inicializado, fazendo login completo...');
+        logger.warn('[Refresh] Browser nao inicializado, fazendo login completo');
         return await login();
     }
 
     try {
-        // Navegar para a pagina principal para manter sessao ativa
-        await page.goto('https://sistema.appbarber.com.br/index.php', {
+        const response = await page.goto('https://sistema.appbarber.com.br/index.php', {
             waitUntil: 'networkidle2',
-            timeout: 30000
+            timeout: 60000
         });
 
         await new Promise(resolve => setTimeout(resolve, 2000));
 
-        // Verificar se ainda esta logado (se redirecionou para login, precisa relogar)
         const currentUrl = page.url();
         const pageContent = await page.content();
         
         if (currentUrl.includes('index.php') && pageContent.includes('frmLogin')) {
-            console.log('[Auth] Sessao expirada, fazendo novo login...');
+            logger.warn('[Refresh] Sessao expirada, refazendo login...');
             return await login();
         }
 
-        // Capturar cookies atualizados
         const cookies = await extractCookies();
         
         if (cookies && Object.keys(cookies).length > 0) {
             currentCookies = cookies;
-            console.log('[Auth] Sessao renovada com sucesso');
+            logger.success('[Refresh] Sessao renovada');
             return { success: true, cookies };
         } else {
-            console.log('[Auth] Cookies nao encontrados no refresh, tentando login...');
+            logger.warn('[Refresh] Cookies nao encontrados, tentando login...');
             return await login();
         }
 
     } catch (error) {
-        console.error('[Auth] Erro no refresh:', error.message);
-        console.log('[Auth] Tentando login completo...');
+        logger.error(`[Refresh] Erro: ${error.message}`);
         return await login();
     }
 }
 
 function getCurrentCookies() {
     return currentCookies;
-}
-
-function getCookieHeader() {
-    const parts = [];
-    for (const [name, value] of Object.entries(currentCookies)) {
-        parts.push(`${name}=${value}`);
-    }
-    return parts.join('; ');
 }
 
 async function closeBrowser() {
@@ -200,8 +209,9 @@ async function closeBrowser() {
 module.exports = {
     login,
     refreshSession,
-    getCurrentCookies,
-    getCookieHeader,
+    verifySession,
     extractCookies,
+    getCurrentCookies,
+    cookiesToString,
     closeBrowser
 };

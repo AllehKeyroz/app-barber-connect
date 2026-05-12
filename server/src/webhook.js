@@ -1,12 +1,30 @@
+const logger = require('./logger');
+
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
+let lastSentCookies = null;
+
+function cookiesAreDifferent(current, last) {
+    if (!last) return true;
+    
+    const currentStr = JSON.stringify(current);
+    const lastStr = JSON.stringify(last);
+    
+    return currentStr !== lastStr;
+}
 
 async function sendCookiesToWebhook(cookies, cookieHeader) {
     if (!WEBHOOK_URL) {
-        console.error('[Webhook] WEBHOOK_URL nao configurada');
+        logger.error('[Webhook] WEBHOOK_URL nao configurada');
         return { success: false, error: 'WEBHOOK_URL not set' };
     }
 
-    console.log('[Webhook] Enviando cookies para:', WEBHOOK_URL);
+    // So envia se os cookies mudaram
+    if (!cookiesAreDifferent(cookies, lastSentCookies)) {
+        logger.info('[Webhook] Cookies inalterados, skipping webhook');
+        return { success: true, skipped: true };
+    }
+
+    logger.info('[Webhook] Alteracao detectada, enviando para:', WEBHOOK_URL);
 
     try {
         const response = await fetch(WEBHOOK_URL, {
@@ -25,16 +43,21 @@ async function sendCookiesToWebhook(cookies, cookieHeader) {
         });
 
         if (response.ok) {
-            console.log('[Webhook] Cookies enviados com sucesso - status:', response.status);
+            lastSentCookies = { ...cookies };
+            logger.success('[Webhook] Cookies enviados com sucesso');
             return { success: true, status: response.status };
         } else {
-            console.error('[Webhook] Erro HTTP:', response.status, response.statusText);
-            return { success: false, status: response.status, error: response.statusText };
+            logger.error(`[Webhook] Erro HTTP: ${response.status}`);
+            return { success: false, status: response.status };
         }
     } catch (error) {
-        console.error('[Webhook] Erro ao enviar:', error.message);
+        logger.error(`[Webhook] Erro ao enviar: ${error.message}`);
         return { success: false, error: error.message };
     }
 }
 
-module.exports = { sendCookiesToWebhook };
+function getLastSentCookies() {
+    return lastSentCookies;
+}
+
+module.exports = { sendCookiesToWebhook, getLastSentCookies };

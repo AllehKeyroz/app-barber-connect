@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AppBarber Session Server</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        
+        header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 20px 0; border-bottom: 1px solid #1e293b; margin-bottom: 24px;
+        }
+        h1 { font-size: 1.5rem; background: linear-gradient(135deg, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .status-badge {
+            padding: 6px 16px; border-radius: 20px; font-size: 0.85rem; font-weight: 600;
+        }
+        .status-ok { background: #065f46; color: #6ee7b7; }
+        .status-renewed { background: #1e3a5f; color: #93c5fd; }
+        .status-error { background: #7f1d1d; color: #fca5a5; }
+        .status-unknown { background: #1e293b; color: #94a3b8; }
+        
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+        
+        .card {
+            background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px;
+        }
+        .card h2 { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
+        
+        .stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #0f172a; }
+        .stat-row:last-child { border-bottom: none; }
+        .stat-label { color: #94a3b8; font-size: 0.9rem; }
+        .stat-value { color: #e2e8f0; font-weight: 500; font-size: 0.9rem; }
+        
+        .cookies-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+        .cookie-tag {
+            background: #0f172a; padding: 6px 12px; border-radius: 6px;
+            font-family: monospace; font-size: 0.8rem; color: #38bdf8;
+        }
+        .cookie-tag.inactive { color: #64748b; }
+        
+        .logs-card { grid-column: 1 / -1; }
+        .log-container {
+            max-height: 400px; overflow-y: auto;
+            font-family: 'Cascadia Code', 'Fira Code', monospace;
+            font-size: 0.8rem; line-height: 1.6;
+        }
+        .log-container::-webkit-scrollbar { width: 6px; }
+        .log-container::-webkit-scrollbar-track { background: #0f172a; border-radius: 3px; }
+        .log-container::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        
+        .log-entry { padding: 2px 8px; border-bottom: 1px solid #0f172a; white-space: pre-wrap; word-break: break-all; }
+        .log-INFO { color: #94a3b8; }
+        .log-SUCCESS { color: #6ee7b7; }
+        .log-WARN { color: #fbbf24; }
+        .log-ERROR { color: #f87171; }
+        
+        .actions { display: flex; gap: 12px; margin-top: 16px; }
+        .btn {
+            padding: 10px 20px; border: none; border-radius: 8px;
+            font-weight: 600; cursor: pointer; transition: all 0.2s;
+            font-size: 0.9rem; font-family: inherit;
+        }
+        .btn:hover { transform: translateY(-1px); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .btn-primary { background: #3b82f6; color: white; }
+        .btn-warning { background: #f59e0b; color: #1e293b; }
+        .btn-danger { background: #ef4444; color: white; }
+        .btn-outline { background: transparent; border: 1px solid #475569; color: #94a3b8; }
+        
+        .auto-scroll-toggle {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 0.8rem; color: #64748b; cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>AppBarber Session Server</h1>
+            <span id="statusBadge" class="status-badge status-unknown">Carregando...</span>
+        </header>
+        
+        <div class="grid">
+            <div class="card">
+                <h2>Sessao</h2>
+                <div class="stat-row"><span class="stat-label">Status</span><span id="sessionStatus" class="stat-value">--</span></div>
+                <div class="stat-row"><span class="stat-label">Ultima sincronizacao</span><span id="lastSync" class="stat-value">--</span></div>
+                <div class="stat-row"><span class="stat-label">Verificacao</span><span id="verifyInterval" class="stat-value">--</span></div>
+                <div class="stat-row"><span class="stat-label">Refresh forcado</span><span id="refreshInterval" class="stat-value">--</span></div>
+                <div class="stat-row"><span class="stat-label">Uptime</span><span id="uptime" class="stat-value">--</span></div>
+            </div>
+            
+            <div class="card">
+                <h2>Cookies Ativos</h2>
+                <div id="cookiesContainer" class="cookies-list">
+                    <span style="color:#64748b;font-size:0.9rem;">Nenhum cookie ativo</span>
+                </div>
+                <div id="cookieHeader" style="margin-top:12px;font-size:0.75rem;color:#64748b;word-break:break-all;font-family:monospace;"></div>
+            </div>
+            
+            <div class="card logs-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <h2 style="margin-bottom:0;">Logs</h2>
+                    <label class="auto-scroll-toggle">
+                        <input type="checkbox" id="autoScroll" checked> Auto-scroll
+                    </label>
+                </div>
+                <div id="logContainer" class="log-container">
+                    <div style="color:#64748b;text-align:center;padding:20px;">Aguardando logs...</div>
+                </div>
+            </div>
+            
+            <div class="card" style="grid-column: 1 / -1;">
+                <h2>Acoes</h2>
+                <div class="actions">
+                    <button id="btnRefresh" class="btn btn-primary">Verificar Agora</button>
+                    <button id="btnForceLogin" class="btn btn-warning">Forcar Login</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let lastLogCount = 0;
+        let logInterval = null;
+        const logContainer = document.getElementById('logContainer');
+        const autoScrollCheck = document.getElementById('autoScroll');
+        
+        async function fetchStatus() {
+            try {
+                const resp = await fetch('/api/status');
+                const data = await resp.json();
+                updateDashboard(data);
+            } catch (e) {
+                document.getElementById('statusBadge').textContent = 'Offline';
+                document.getElementById('statusBadge').className = 'status-badge status-error';
+            }
+        }
+        
+        async function fetchLogs() {
+            try {
+                const resp = await fetch('/api/logs');
+                const data = await resp.json();
+                updateLogs(data.logs || []);
+            } catch (e) {}
+        }
+        
+        function updateDashboard(data) {
+            const badge = document.getElementById('statusBadge');
+            const statusText = data.lastStatus || 'unknown';
+            
+            badge.textContent = statusText.toUpperCase();
+            badge.className = `status-badge status-${statusText}`;
+            
+            document.getElementById('sessionStatus').textContent = 
+                data.cookiesActive ? 'Conectado' : 'Desconectado';
+            document.getElementById('lastSync').textContent = 
+                data.lastSync ? new Date(data.lastSync).toLocaleString('pt-BR') : 'Nunca';
+            document.getElementById('verifyInterval').textContent = 
+                data.scheduler?.verifyInterval || '--';
+            document.getElementById('refreshInterval').textContent = 
+                data.scheduler?.refreshInterval || '--';
+            document.getElementById('uptime').textContent = 
+                data.uptime ? formatUptime(data.uptime) : '--';
+            
+            // Cookies
+            const cookiesContainer = document.getElementById('cookiesContainer');
+            if (data.cookiesActive && data.activeCookies) {
+                cookiesContainer.innerHTML = data.activeCookies.map(c => 
+                    `<span class="cookie-tag">${c}</span>`
+                ).join('');
+            } else {
+                cookiesContainer.innerHTML = '<span style="color:#64748b;font-size:0.9rem;">Nenhum cookie ativo</span>';
+            }
+            
+            document.getElementById('cookieHeader').textContent = data.cookieHeader || '';
+        }
+        
+        function updateLogs(logs) {
+            if (logs.length === 0) return;
+            
+            logContainer.innerHTML = logs.map(log =>
+                `<div class="log-entry log-${log.level}">[${log.timestamp}] [${log.level}] ${log.message}</div>`
+            ).join('');
+            
+            if (autoScrollCheck.checked) {
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+        }
+        
+        function formatUptime(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            return `${h}h ${m}m ${s}s`;
+        }
+        
+        // Acoes
+        document.getElementById('btnRefresh').addEventListener('click', async () => {
+            const btn = document.getElementById('btnRefresh');
+            btn.disabled = true; btn.textContent = 'Verificando...';
+            try {
+                await fetch('/api/refresh', { method: 'POST' });
+                await fetchStatus();
+                await fetchLogs();
+            } catch(e) {}
+            btn.disabled = false; btn.textContent = 'Verificar Agora';
+        });
+        
+        document.getElementById('btnForceLogin').addEventListener('click', async () => {
+            const btn = document.getElementById('btnForceLogin');
+            btn.disabled = true; btn.textContent = 'Logando...';
+            try {
+                await fetch('/api/login', { method: 'POST' });
+                await fetchStatus();
+                await fetchLogs();
+            } catch(e) {}
+            btn.disabled = false; btn.textContent = 'Forcar Login';
+        });
+        
+        // Polling
+        fetchStatus();
+        fetchLogs();
+        setInterval(fetchStatus, 5000);
+        setInterval(fetchLogs, 3000);
+    </script>
+</body>
+</html>

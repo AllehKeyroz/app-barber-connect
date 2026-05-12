@@ -1,113 +1,125 @@
 require('dotenv').config();
 
+const path = require('path');
 const express = require('express');
-const { login, getCurrentCookies, getCookieHeader, closeBrowser } = require('./auth');
-const { sendCookiesToWebhook } = require('./webhook');
-const { startScheduler, executeRefresh, getStatus } = require('./scheduler');
+const { login, getCurrentCookies, verifySession, closeBrowser } = require('./auth');
+const { sendCookiesToWebhook, getLastSentCookies } = require('./webhook');
+const { startScheduler, executeCycle, executeForcedLogin, getStatus } = require('./scheduler');
+const logger = require('./logger');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const startTime = Date.now();
 
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Dashboard
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// API - Status completo
+app.get('/api/status', (req, res) => {
+    const status = getStatus();
+    const cookies = getCurrentCookies();
+    const lastSent = getLastSentCookies();
+    const hasCookies = Object.keys(cookies).length > 0;
+    
+    res.json({
+        status: hasCookies ? 'healthy' : 'no_session',
+        lastStatus: status.lastStatus,
+        lastSync: status.lastSync,
+        cookiesActive: hasCookies,
+        activeCookies: Object.keys(cookies),
+        cookieHeader: hasCookies ? cookiesToString(cookies) : null,
+        cookiesMatchLastSent: lastSent ? JSON.stringify(cookies) === JSON.stringify(lastSent) : false,
+        scheduler: status,
+        uptime: (Date.now() - startTime) / 1000
+    });
+});
+
+// API - Logs
+app.get('/api/logs', (req, res) => {
+    const limit = parseInt(req.query.limit) || 100;
+    res.json({ logs: logger.getHistory(limit) });
+});
+
+// API - Refresh
+app.post('/api/refresh', async (req, res) => {
+    logger.info('[API] Refresh manual solicitado');
+    const result = await executeCycle();
+    res.json(result);
+});
+
+// API - Login forçado
+app.post('/api/login', async (req, res) => {
+    logger.info('[API] Login manual solicitado');
+    const result = await executeForcedLogin();
+    res.json(result);
+});
 
 // Health check
 app.get('/health', (req, res) => {
     const status = getStatus();
     const cookies = getCurrentCookies();
-    const hasCookies = Object.keys(cookies).length > 0;
-    
     res.json({
-        status: hasCookies ? 'healthy' : 'no_session',
-        scheduler: status,
-        cookies_active: hasCookies,
-        uptime: process.uptime()
+        status: Object.keys(cookies).length > 0 ? 'healthy' : 'no_session',
+        uptime: (Date.now() - startTime) / 1000,
+        scheduler: status.running,
+        lastSync: status.lastSync
     });
 });
 
-// Status detalhado
-app.get('/status', (req, res) => {
-    const status = getStatus();
-    const cookies = getCurrentCookies();
-    
-    res.json({
-        scheduler: status,
-        cookies: Object.keys(cookies),
-        cookie_header: getCookieHeader() ? getCookieHeader().substring(0, 50) + '...' : null
-    });
-});
-
-// Forcar refresh manual
-app.post('/refresh', async (req, res) => {
-    console.log('[API] Refresh manual solicitado');
-    const result = await executeRefresh();
-    res.json(result);
-});
-
-// Forcar login completo
-app.post('/login', async (req, res) => {
-    console.log('[API] Login manual solicitado');
-    const result = await login();
-    
-    if (result.success) {
-        const cookies = getCurrentCookies();
-        const cookieHeader = getCookieHeader();
-        await sendCookiesToWebhook(cookies, cookieHeader);
+function cookiesToString(cookies) {
+    const parts = [];
+    for (const [key, val] of Object.entries(cookies)) {
+        parts.push(`${key}=${val}`);
     }
-    
-    res.json({
-        success: result.success,
-        error: result.error || null,
-        cookies: result.success ? Object.keys(result.cookies) : []
-    });
-});
+    return parts.join('; ');
+}
 
 // Inicializacao
 async function init() {
-    console.log('===========================================');
-    console.log(' AppBarber Session Server');
-    console.log('===========================================');
-    console.log(`Email: ${process.env.APPBARBER_EMAIL}`);
-    console.log(`Webhook: ${process.env.WEBHOOK_URL}`);
-    console.log(`Refresh: a cada ${process.env.REFRESH_INTERVAL || 30} minutos`);
-    console.log('-------------------------------------------');
+    logger.info('===========================================');
+    logger.info(' AppBarber Session Server');
+    logger.info('===========================================');
+    logger.info(`Email: ${process.env.APPBARBER_EMAIL}`);
+    logger.info(`Webhook: ${process.env.WEBHOOK_URL}`);
+    logger.info(`Verificacao: a cada ${process.env.VERIFY_INTERVAL || 60} min`);
+    logger.info(`Refresh forcado: a cada ${process.env.REFRESH_INTERVAL || 360} min`);
+    logger.info('-------------------------------------------');
     
-    // Fazer login inicial
-    console.log('[Init] Fazendo login inicial...');
+    // Login inicial
     const loginResult = await login();
     
     if (loginResult.success) {
-        console.log('[Init] Login inicial bem-sucedido!');
-        
-        // Enviar cookies para webhook
         const cookies = getCurrentCookies();
-        const cookieHeader = getCookieHeader();
+        const cookieHeader = cookiesToString(cookies);
         await sendCookiesToWebhook(cookies, cookieHeader);
-        
-        // Iniciar scheduler
-        startScheduler();
-    } else {
-        console.error('[Init] Login inicial FALHOU:', loginResult.error);
-        console.log('[Init] Scheduler sera iniciado mesmo assim. Tentara novamente no proximo ciclo.');
-        startScheduler();
     }
+    
+    // Iniciar scheduler (ciclo de verificacao)
+    startScheduler();
     
     // Iniciar servidor HTTP
     app.listen(PORT, () => {
-        console.log(`[Server] Rodando na porta ${PORT}`);
-        console.log(`[Server] Health check: http://localhost:${PORT}/health`);
-        console.log('===========================================');
+        logger.info(`[Server] Rodando na porta ${PORT}`);
+        logger.info(`[Server] Dashboard: http://localhost:${PORT}`);
+        logger.info(`[Server] Health: http://localhost:${PORT}/health`);
+        logger.info('===========================================');
     });
 }
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
-    console.log('[Server] Encerrando...');
+    logger.info('[Server] Encerrando...');
     await closeBrowser();
     process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-    console.log('[Server] Encerrando...');
+    logger.info('[Server] Encerrando...');
     await closeBrowser();
     process.exit(0);
 });
