@@ -95,8 +95,8 @@
                 <h2>Sessao</h2>
                 <div class="stat-row"><span class="stat-label">Status</span><span id="sessionStatus" class="stat-value">--</span></div>
                 <div class="stat-row"><span class="stat-label">Ultima sincronizacao</span><span id="lastSync" class="stat-value">--</span></div>
-                <div class="stat-row"><span class="stat-label">Verificacao</span><span id="verifyInterval" class="stat-value">--</span></div>
-                <div class="stat-row"><span class="stat-label">Refresh forcado</span><span id="refreshInterval" class="stat-value">--</span></div>
+                <div class="stat-row"><span class="stat-label">Intervalo</span><span id="refreshInterval" class="stat-value">--</span></div>
+                <div class="stat-row"><span class="stat-label">Proxima atualizacao</span><span id="nextRunCountdown" class="stat-value" style="font-family:monospace;color:#38bdf8;">--</span></div>
                 <div class="stat-row"><span class="stat-label">Uptime</span><span id="uptime" class="stat-value">--</span></div>
             </div>
             
@@ -123,7 +123,7 @@
             <div class="card" style="grid-column: 1 / -1;">
                 <h2>Acoes</h2>
                 <div class="actions">
-                    <button id="btnRefresh" class="btn btn-primary">Verificar Agora</button>
+                    <button id="btnRefresh" class="btn btn-primary">Atualizar Agora</button>
                     <button id="btnForceLogin" class="btn btn-warning">Forcar Login</button>
                 </div>
             </div>
@@ -133,6 +133,8 @@
     <script>
         let lastLogCount = 0;
         let logInterval = null;
+        let countdownInterval = null;
+        let nextRunTime = null;
         const logContainer = document.getElementById('logContainer');
         const autoScrollCheck = document.getElementById('autoScroll');
         
@@ -140,11 +142,29 @@
             try {
                 const resp = await fetch('/api/status');
                 const data = await resp.json();
+                nextRunTime = data.nextRun;
                 updateDashboard(data);
             } catch (e) {
                 document.getElementById('statusBadge').textContent = 'Offline';
                 document.getElementById('statusBadge').className = 'status-badge status-error';
             }
+        }
+        
+        function updateCountdown() {
+            const el = document.getElementById('nextRunCountdown');
+            if (!nextRunTime) {
+                el.textContent = '--';
+                return;
+            }
+            const diff = new Date(nextRunTime) - new Date();
+            if (diff <= 0) {
+                el.textContent = 'Atualizando...';
+                return;
+            }
+            const h = Math.floor(diff / 3600000);
+            const m = Math.floor((diff % 3600000) / 60000);
+            const s = Math.floor((diff % 60000) / 1000);
+            el.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
         }
         
         async function fetchLogs() {
@@ -166,14 +186,11 @@
                 data.cookiesActive ? 'Conectado' : 'Desconectado';
             document.getElementById('lastSync').textContent = 
                 data.lastSync ? new Date(data.lastSync).toLocaleString('pt-BR') : 'Nunca';
-            document.getElementById('verifyInterval').textContent = 
-                data.scheduler?.verifyInterval || '--';
             document.getElementById('refreshInterval').textContent = 
-                data.scheduler?.refreshInterval || '--';
+                data.scheduler?.interval || '--';
             document.getElementById('uptime').textContent = 
                 data.uptime ? formatUptime(data.uptime) : '--';
             
-            // Cookies
             const cookiesContainer = document.getElementById('cookiesContainer');
             if (data.cookiesActive && data.activeCookies) {
                 cookiesContainer.innerHTML = data.activeCookies.map(c => 
@@ -208,13 +225,14 @@
         // Acoes
         document.getElementById('btnRefresh').addEventListener('click', async () => {
             const btn = document.getElementById('btnRefresh');
-            btn.disabled = true; btn.textContent = 'Verificando...';
+            btn.disabled = true; btn.textContent = 'Atualizando...';
             try {
-                await fetch('/api/refresh', { method: 'POST' });
+                const resp = await fetch('/api/refresh', { method: 'POST' });
+                const result = await resp.json();
                 await fetchStatus();
                 await fetchLogs();
             } catch(e) {}
-            btn.disabled = false; btn.textContent = 'Verificar Agora';
+            btn.disabled = false; btn.textContent = 'Atualizar Agora';
         });
         
         document.getElementById('btnForceLogin').addEventListener('click', async () => {
@@ -233,6 +251,7 @@
         fetchLogs();
         setInterval(fetchStatus, 5000);
         setInterval(fetchLogs, 3000);
+        setInterval(updateCountdown, 1000);
     </script>
 </body>
 </html>

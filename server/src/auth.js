@@ -44,30 +44,6 @@ async function extractCookies() {
     return extracted;
 }
 
-async function verifySession() {
-    if (!browser || !page) {
-        logger.warn('[Verify] Browser nao inicializado');
-        return { alive: false };
-    }
-    
-    try {
-        const cookies = await extractCookies();
-        const hasEssential = cookies && cookies.PHPSESSID && cookies.APPBLZ_ID;
-        
-        if (!hasEssential || Object.keys(cookies).length < 2) {
-            logger.warn('[Verify] Cookies essenciais ausentes');
-            return { alive: false, reason: 'cookies_ausentes' };
-        }
-        
-        logger.success('[Verify] Sessao ativa');
-        return { alive: true, cookies };
-        
-    } catch (error) {
-        logger.error(`[Verify] Erro: ${error.message}`);
-        return { alive: false, reason: error.message };
-    }
-}
-
 async function login() {
     logger.info('[Login] Iniciando login...');
     
@@ -209,7 +185,6 @@ async function closeBrowser() {
 module.exports = {
     login,
     refreshSession,
-    verifySession,
     extractCookies,
     getCurrentCookies,
     cookiesToString,

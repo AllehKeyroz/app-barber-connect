@@ -2,9 +2,9 @@ require('dotenv').config();
 
 const path = require('path');
 const express = require('express');
-const { login, getCurrentCookies, verifySession, closeBrowser } = require('./auth');
+const { login, getCurrentCookies, closeBrowser } = require('./auth');
 const { sendCookiesToWebhook, getLastSentCookies } = require('./webhook');
-const { startScheduler, executeCycle, executeForcedLogin, getStatus } = require('./scheduler');
+const { startScheduler, executeCycle, getStatus, getNextRun } = require('./scheduler');
 const logger = require('./logger');
 
 const app = express();
@@ -30,6 +30,7 @@ app.get('/api/status', (req, res) => {
         status: hasCookies ? 'healthy' : 'no_session',
         lastStatus: status.lastStatus,
         lastSync: status.lastSync,
+        nextRun: status.nextRun,
         cookiesActive: hasCookies,
         activeCookies: Object.keys(cookies),
         cookieHeader: hasCookies ? cookiesToString(cookies) : null,
@@ -55,8 +56,16 @@ app.post('/api/refresh', async (req, res) => {
 // API - Login forçado
 app.post('/api/login', async (req, res) => {
     logger.info('[API] Login manual solicitado');
-    const result = await executeForcedLogin();
-    res.json(result);
+    const result = await login();
+    if (result.success) {
+        const cookies = getCurrentCookies();
+        const cookieHeader = cookiesToString(cookies);
+        await sendCookiesToWebhook(cookies, cookieHeader);
+    }
+    res.json({
+        success: result.success,
+        error: result.error || null
+    });
 });
 
 // Health check
@@ -86,8 +95,7 @@ async function init() {
     logger.info('===========================================');
     logger.info(`Email: ${process.env.APPBARBER_EMAIL}`);
     logger.info(`Webhook: ${process.env.WEBHOOK_URL}`);
-    logger.info(`Verificacao: a cada ${process.env.VERIFY_INTERVAL || 60} min`);
-    logger.info(`Refresh forcado: a cada ${process.env.REFRESH_INTERVAL || 360} min`);
+    logger.info(`Atualizacao: a cada ${process.env.REFRESH_INTERVAL || 4} horas`);
     logger.info('-------------------------------------------');
     
     // Login inicial
