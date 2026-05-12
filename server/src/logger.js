@@ -11,14 +11,36 @@ function ensureLogDir() {
     }
 }
 
+const TIMEZONE = 'America/Sao_Paulo';
+
 function formatTimestamp() {
     const now = new Date();
-    return now.toISOString().replace('T', ' ').substring(0, 19);
+    const formatter = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: TIMEZONE,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    });
+    const parts = formatter.formatToParts(now);
+    const get = (type) => parts.find(p => p.type === type).value;
+    return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
 }
 
 function getLogFileName() {
     const now = new Date();
-    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const formatter = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: TIMEZONE,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    });
+    const parts = formatter.formatToParts(now);
+    const get = (type) => parts.find(p => p.type === type).value;
+    const dateStr = `${get('year')}-${get('month')}-${get('day')}`;
     return path.join(LOG_DIR, `appbarber-${dateStr}.log`);
 }
 

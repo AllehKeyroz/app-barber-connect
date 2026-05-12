@@ -1,7 +1,9 @@
 FROM node:20-slim
 
-# Instalar dependencias do Chromium para Puppeteer
+# Configurar timezone e instalar dependencias do Chromium
+ENV TZ=America/Sao_Paulo
 RUN apt-get update && apt-get install -y \
+    tzdata \
     chromium \
     fonts-liberation \
     libasound2 \
@@ -20,6 +22,8 @@ RUN apt-get update && apt-get install -y \
     libxrandr2 \
     xdg-utils \
     --no-install-recommends \
+    && ln -fs /usr/share/zoneinfo/America/Sao_Paulo /etc/localtime \
+    && dpkg-reconfigure --frontend noninteractive tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Configurar Puppeteer para usar Chromium do sistema
