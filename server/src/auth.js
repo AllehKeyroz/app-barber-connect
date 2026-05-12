@@ -118,6 +118,14 @@ async function extractCookies() {
     for (const cookie of allCookies) {
         if (TARGET_COOKIES.includes(cookie.name)) {
             extracted[cookie.name] = cookie.value;
+            
+            // Log expiracao para debug
+            if (cookie.expires) {
+                const expDate = new Date(cookie.expires * 1000);
+                console.log(`[Auth] Cookie ${cookie.name}: expira em ${expDate.toLocaleString('pt-BR')} (${Math.round((cookie.expires * 1000 - Date.now()) / 60000)} min)`);
+            } else {
+                console.log(`[Auth] Cookie ${cookie.name}: sessao (sem data de expiracao explicita)`);
+            }
         }
     }
     
