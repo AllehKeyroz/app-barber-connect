@@ -104,9 +104,10 @@ async function init() {
     
     // Iniciar servidor HTTP
     app.listen(PORT, () => {
+        const baseUrl = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
         logger.info(`[Server] Rodando na porta ${PORT}`);
-        logger.info(`[Server] Dashboard: http://localhost:${PORT}`);
-        logger.info(`[Server] Health: http://localhost:${PORT}/health`);
+        logger.info(`[Server] Dashboard: ${baseUrl}`);
+        logger.info(`[Server] Health: ${baseUrl}/health`);
         logger.info('===========================================');
     });
 }
